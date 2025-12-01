@@ -59,6 +59,25 @@ app.get('/topics', (req, res) => {
   res.json(list);
 });
 
+// GET /topics_index - lightweight paginated index (id + title)
+// Query params: page (1-based), per_page (default 20)
+app.get('/topics_index', (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page || '1'));
+  const perPage = Math.max(1, Math.min(100, parseInt(req.query.per_page || '20')));
+  const all = (db.rangkuman_topik || []).map(t => ({ topik_id: t.topik_id, judul_topik: t.judul_topik }));
+  const total = all.length;
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+  const start = (page - 1) * perPage;
+  const items = all.slice(start, start + perPage);
+  res.json({
+    page,
+    per_page: perPage,
+    total,
+    total_pages: totalPages,
+    items,
+  });
+});
+
 // GET /topic/:id - detail
 app.get('/topic/:id', (req, res) => {
   const id = req.params.id;
@@ -102,6 +121,81 @@ app.get('/search', (req, res) => {
     }
   });
   res.json({ query: q, results });
+});
+
+// GET /topics/:id - alias for backwards compatibility
+app.get('/topics/:id', (req, res) => {
+  const id = req.params.id;
+  const topic = (db.rangkuman_topik || []).find(t => String(t.topik_id) === String(id));
+  if (!topic) return res.status(404).json({ error: 'Topic not found' });
+  res.json(topic);
+});
+
+// POST /topics - add a new topic (requires UPLOAD_SECRET if configured)
+app.post('/topics', (req, res) => {
+  if (UPLOAD_SECRET && String(req.query.secret || '') !== String(UPLOAD_SECRET)) {
+    return res.status(403).json({ error: 'Forbidden. Missing or invalid secret.' });
+  }
+  const incoming = req.body;
+  if (!incoming || typeof incoming !== 'object') return res.status(400).json({ error: 'Invalid JSON body' });
+  if (!incoming.topik_id || !incoming.judul_topik) return res.status(400).json({ error: 'Missing topik_id or judul_topik' });
+
+  // prevent duplicate
+  const exists = (db.rangkuman_topik || []).some(t => String(t.topik_id) === String(incoming.topik_id));
+  if (exists) return res.status(409).json({ error: 'Topic with this id already exists' });
+
+  db.rangkuman_topik = db.rangkuman_topik || [];
+  db.rangkuman_topik.push(incoming);
+  try {
+    fs.writeFileSync(DATA_PATH, JSON.stringify(db, null, 2), 'utf8');
+    loadData();
+    res.json({ ok: true, message: 'Topic added', topic: incoming });
+  } catch (err) {
+    console.error('Failed to add topic:', err);
+    res.status(500).json({ error: 'Failed to save topic' });
+  }
+});
+
+// PUT /topic/:id - update existing topic (requires UPLOAD_SECRET if configured)
+app.put('/topic/:id', (req, res) => {
+  if (UPLOAD_SECRET && String(req.query.secret || '') !== String(UPLOAD_SECRET)) {
+    return res.status(403).json({ error: 'Forbidden. Missing or invalid secret.' });
+  }
+  const id = req.params.id;
+  const incoming = req.body;
+  if (!incoming || typeof incoming !== 'object') return res.status(400).json({ error: 'Invalid JSON body' });
+  const idx = (db.rangkuman_topik || []).findIndex(t => String(t.topik_id) === String(id));
+  if (idx === -1) return res.status(404).json({ error: 'Topic not found' });
+
+  const updated = { ...db.rangkuman_topik[idx], ...incoming };
+  db.rangkuman_topik[idx] = updated;
+  try {
+    fs.writeFileSync(DATA_PATH, JSON.stringify(db, null, 2), 'utf8');
+    loadData();
+    res.json({ ok: true, message: 'Topic updated', topic: updated });
+  } catch (err) {
+    console.error('Failed to update topic:', err);
+    res.status(500).json({ error: 'Failed to save topic' });
+  }
+});
+
+// DELETE /topic/:id - remove a topic (requires UPLOAD_SECRET if configured)
+app.delete('/topic/:id', (req, res) => {
+  if (UPLOAD_SECRET && String(req.query.secret || '') !== String(UPLOAD_SECRET)) {
+    return res.status(403).json({ error: 'Forbidden. Missing or invalid secret.' });
+  }
+  const id = req.params.id;
+  const before = (db.rangkuman_topik || []).length;
+  db.rangkuman_topik = (db.rangkuman_topik || []).filter(t => String(t.topik_id) !== String(id));
+  if (db.rangkuman_topik.length === before) return res.status(404).json({ error: 'Topic not found' });
+  try {
+    fs.writeFileSync(DATA_PATH, JSON.stringify(db, null, 2), 'utf8');
+    loadData();
+    res.json({ ok: true, message: 'Topic deleted', topics: db.rangkuman_topik.length });
+  } catch (err) {
+    console.error('Failed to delete topic:', err);
+    res.status(500).json({ error: 'Failed to delete topic' });
+  }
 });
 
 // POST /upload - save new JSON (optional UPLOAD_SECRET)

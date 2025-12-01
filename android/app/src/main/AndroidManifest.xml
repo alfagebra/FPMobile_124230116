@@ -2,6 +2,12 @@
     <!-- Location permissions required for geolocation features -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Camera and storage permissions for profile photo upload -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <!-- Android 13+ separate permission for images -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <!-- On Android 13+ you may need to request POST_NOTIFICATIONS at runtime -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application

@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../main.dart';
 import '../models/docs_model.dart';
 import '../services/docs_service.dart';
 import '../utils/debouncer.dart';
 import '../services/progress_service.dart';
+import '../database/hive_database.dart';
 import '../widgets/search_bar.dart';
 import '../widgets/clock_zone.dart';
 import '../services/user_status_service.dart';
@@ -12,6 +14,8 @@ import '../services/location_service.dart';
 import '../services/nearby_service.dart';
 import '../utils/palette.dart';
 import '../services/settings_service.dart';
+import '../services/api_service.dart';
+import '../services/notification_service.dart';
 import 'payment_offer_screen.dart';
 import 'profile_map_screen.dart';
 import 'detail_materi_screen.dart';
@@ -28,9 +32,10 @@ class HomeTab extends StatefulWidget {
   State<HomeTab> createState() => _HomeTabState();
 }
 
-class _HomeTabState extends State<HomeTab> {
+class _HomeTabState extends State<HomeTab> with RouteAware {
   PBMMateri? _materi;
   List<Topik> _filteredTopik = [];
+  bool _isCurrentUserPremium = false;
   bool _isLoading = true;
   bool _hasError = false;
   bool _hasLoaded = false;
@@ -49,6 +54,8 @@ class _HomeTabState extends State<HomeTab> {
     // Debounce initial load to avoid multiple rapid loads when the
     // surrounding navigation/state changes (e.g. premium toggle) occur.
     _debouncer.run(() => _loadMateri());
+    // Route observer subscription happens in didChangeDependencies so we
+    // can refresh premium state when returning to this screen.
     // load nearby places if user allowed
     if (SettingsService.allowLocation.value) {
       _loadNearby();
@@ -71,7 +78,41 @@ class _HomeTabState extends State<HomeTab> {
   @override
   void dispose() {
     SettingsService.allowLocation.removeListener(_allowLocationListener);
+    try {
+      routeObserver.unsubscribe(this);
+    } catch (_) {}
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route != null) routeObserver.subscribe(this, route);
+  }
+
+  @override
+  void didPopNext() {
+    // When returning to this screen, refresh user premium flag and optionally reload materi
+    _refreshUserPremium();
+  }
+
+  Future<void> _refreshUserPremium() async {
+    try {
+      final hive = HiveDatabase();
+      final email = await hive.getCurrentUserEmail();
+      if (email != null) {
+        final premium = await hive.isPremium(email);
+        if (!mounted) return;
+        setState(() => _isCurrentUserPremium = premium);
+      } else {
+        if (!mounted) return;
+        setState(() => _isCurrentUserPremium = false);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isCurrentUserPremium = false);
+    }
   }
 
   Future<void> _loadNearby() async {
@@ -119,6 +160,8 @@ class _HomeTabState extends State<HomeTab> {
         _isLoading = false;
         _hasLoaded = true;
       });
+      // Ensure premium flag is refreshed for the current user
+      await _refreshUserPremium();
       _calculateOverallProgress(materi);
     } catch (e) {
       debugPrint('❌ HomeTab._loadMateri error: $e');
@@ -134,17 +177,19 @@ class _HomeTabState extends State<HomeTab> {
   Future<void> _calculateOverallProgress(PBMMateri materi) async {
     int totalSub = 0;
     int doneSub = 0;
+    final hive = HiveDatabase();
+    final email = await hive.getCurrentUserEmail();
 
     for (var topik in materi.rangkumanTopik) {
       if (topik.konten is List) {
         for (int i = 0; i < (topik.konten as List).length; i++) {
           totalSub++;
-          bool progress = await ProgressService.getProgress(topik.topikId, i);
+          bool progress = await ProgressService.getProgress(topik.topikId, i, userEmail: email);
           if (progress) doneSub++;
         }
       } else if (topik.konten is Map) {
         totalSub++;
-        bool progress = await ProgressService.getProgress(topik.topikId, 0);
+        bool progress = await ProgressService.getProgress(topik.topikId, 0, userEmail: email);
         if (progress) doneSub++;
       }
     }
@@ -158,59 +203,80 @@ class _HomeTabState extends State<HomeTab> {
   void _onSearchChanged(String query) {
     if (_materi == null) return;
     final q = query.trim().toLowerCase();
-    setState(() {
+    // Use remote search when enabled; otherwise use local filtering
+    _debouncer.run(() async {
+      if (!mounted) return;
       if (q.isEmpty) {
-        _filteredTopik = _materi!.rangkumanTopik;
+        setState(() => _filteredTopik = _materi!.rangkumanTopik);
         return;
       }
 
-      bool matchesTopik(Topik t) {
-        // match title
-        if (t.judulTopik.toLowerCase().contains(q)) return true;
-
-        // match konten: if list of map entries, check sub_judul and any string values
-        final konten = t.konten;
-        if (konten is List) {
-          for (var item in konten) {
-            if (item is Map) {
-              final sub =
-                  ((item['sub_judul'] ?? item['jenis'] ?? item['nama']) ?? '')
-                      .toString()
-                      .toLowerCase();
-              if (sub.contains(q)) return true;
-              // check other map values (descriptions)
-              for (var v in item.values) {
-                if (v is String && v.toLowerCase().contains(q)) return true;
-                if (v is List) {
-                  for (var s in v) {
-                    if (s is String && s.toLowerCase().contains(q)) return true;
-                  }
-                }
+      if (SettingsService.useRemoteMateri.value) {
+        try {
+          final api = ApiService();
+          final resp = await api.search(q);
+          // resp expected { query, results: [ { topik_id, judul_topik, ... } ] }
+          final results = resp['results'] as List? ?? [];
+          final List<Topik> fetched = [];
+          for (final r in results) {
+            try {
+              final id = r['topik_id']?.toString();
+              if (id == null) continue;
+              final topicJson = await api.getTopicById(id);
+              if (topicJson is Map<String, dynamic>) {
+                fetched.add(Topik.fromJson(topicJson));
               }
-            } else if (item is String) {
-              if (item.toLowerCase().contains(q)) return true;
-            }
+            } catch (_) {}
           }
-        } else if (konten is Map) {
-          final sub =
-              ((konten['sub_judul'] ?? konten['jenis'] ?? konten['nama']) ?? '')
-                  .toString()
-                  .toLowerCase();
-          if (sub.contains(q)) return true;
-          for (var v in konten.values) {
-            if (v is String && v.toLowerCase().contains(q)) return true;
-            if (v is List) {
-              for (var s in v) {
-                if (s is String && s.toLowerCase().contains(q)) return true;
-              }
-            }
-          }
+          if (!mounted) return;
+          setState(() => _filteredTopik = fetched);
+          return;
+        } catch (e) {
+          debugPrint('⚠️ Remote search failed, falling back to local: $e');
+          // fallback to local filtering below
         }
-
-        return false;
       }
 
-      _filteredTopik = _materi!.rangkumanTopik.where(matchesTopik).toList();
+      // Local in-memory filtering
+      setState(() {
+        bool matchesTopik(Topik t) {
+          final titleLower = t.judulTopik.toLowerCase();
+          if (titleLower.contains(q)) return true;
+          final konten = t.konten;
+          if (konten is List) {
+            for (var item in konten) {
+              if (item is Map) {
+                final sub = ((item['sub_judul'] ?? item['jenis'] ?? item['nama']) ?? '').toString().toLowerCase();
+                if (sub.contains(q)) return true;
+                for (var v in item.values) {
+                  if (v is String && v.toLowerCase().contains(q)) return true;
+                  if (v is List) {
+                    for (var s in v) {
+                      if (s is String && s.toLowerCase().contains(q)) return true;
+                    }
+                  }
+                }
+              } else if (item is String) {
+                if (item.toLowerCase().contains(q)) return true;
+              }
+            }
+          } else if (konten is Map) {
+            final sub = ((konten['sub_judul'] ?? konten['jenis'] ?? konten['nama']) ?? '').toString().toLowerCase();
+            if (sub.contains(q)) return true;
+            for (var v in konten.values) {
+              if (v is String && v.toLowerCase().contains(q)) return true;
+              if (v is List) {
+                for (var s in v) {
+                  if (s is String && s.toLowerCase().contains(q)) return true;
+                }
+              }
+            }
+          }
+          return false;
+        }
+
+        _filteredTopik = _materi!.rangkumanTopik.where(matchesTopik).toList();
+      });
     });
   }
 
@@ -277,7 +343,8 @@ class _HomeTabState extends State<HomeTab> {
           ),
           const SizedBox(height: 8),
           SizedBox(
-            height: 72,
+            // increased height slightly to avoid bottom overflow on small screens
+            height: 96,
             child: _loadingNearby
                 ? Center(
                     child: CircularProgressIndicator(color: Palette.accent),
@@ -312,15 +379,15 @@ class _HomeTabState extends State<HomeTab> {
                           );
                         },
                         child: Container(
-                          width: 180,
-                          padding: const EdgeInsets.all(10),
+                          width: 170,
+                          padding: const EdgeInsets.all(6),
                           decoration: BoxDecoration(
                             color: Palette.surface,
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Row(
                             children: [
-                              Icon(icon, color: Palette.primary),
+                              Icon(icon, color: Palette.primary, size: 24),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Column(
@@ -332,7 +399,9 @@ class _HomeTabState extends State<HomeTab> {
                                       style: TextStyle(
                                         color: Palette.onPrimary,
                                         fontWeight: FontWeight.bold,
+                                        fontSize: 13,
                                       ),
+                                      maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                     const SizedBox(height: 4),
@@ -340,7 +409,7 @@ class _HomeTabState extends State<HomeTab> {
                                       distStr,
                                       style: TextStyle(
                                         color: Palette.mutedOnDark,
-                                        fontSize: 12,
+                                        fontSize: 11,
                                       ),
                                     ),
                                   ],
@@ -493,7 +562,7 @@ class _HomeTabState extends State<HomeTab> {
           topik: topik,
           index: originalIndex,
           isPremium: originalIndex >= 2, // mulai bab ke-3 ke atas premium
-          isPremiumUnlocked: widget.unlockPremium,
+            isPremiumUnlocked: _isCurrentUserPremium,
           prevTopikId: prevTopikId,
           onTapLocked: () => _showPremiumDialog(topik.judulTopik),
           onExamCompleted: (score, total, topikIndex) async {
@@ -513,6 +582,20 @@ class _HomeTabState extends State<HomeTab> {
                 final nextIndex = topikIndex + 1;
                 if (nextIndex < _materi!.rangkumanTopik.length) {
                   final nextTopik = _materi!.rangkumanTopik[nextIndex];
+                  // If next topic is premium and the current user is not premium,
+                  // show the purchase dialog instead of navigating.
+                  final isNextPremium = nextIndex >= 2;
+                  if (isNextPremium && !_isCurrentUserPremium) {
+                    // show prompt to buy premium
+                    _showPremiumDialog(nextTopik.judulTopik);
+                    try {
+                      await NotificationService.show(
+                        'Akses Premium Diperlukan',
+                        'Untuk membuka "${nextTopik.judulTopik}" kamu perlu membuka Premium.',
+                      );
+                    } catch (_) {}
+                    return;
+                  }
                   Map<String, dynamic> firstContent = {};
                   if (nextTopik.konten is List &&
                       (nextTopik.konten as List).isNotEmpty) {
@@ -538,10 +621,13 @@ class _HomeTabState extends State<HomeTab> {
 
                   // Mark progress as read for UX continuity
                   try {
+                    final hive = HiveDatabase();
+                    final email = await hive.getCurrentUserEmail();
                     await ProgressService.saveProgress(
                       nextTopik.topikId,
                       0,
                       true,
+                      userEmail: email,
                     );
                   } catch (_) {}
                   setState(() {});

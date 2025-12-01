@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../database/hive_database.dart';
 import '../widgets/custom_app_bar.dart';
 import 'edit_profile_screen.dart';
@@ -97,62 +98,171 @@ class _ProfileScreenState extends State<ProfileScreen> {
   /// 🔹 Pilih gambar profil dari galeri atau kamera
   Future<void> _pickProfileImage() async {
     final ImagePicker picker = ImagePicker();
-
-    showDialog(
+    // First ask for confirmation to change profile photo
+    final confirm = await showDialog<bool>(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF00345B),
-          title: const Text(
-            'Pilih Foto Profil',
-            style: TextStyle(color: Colors.white),
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF00345B),
+        title: const Text('Ubah Foto Profil', style: TextStyle(color: Colors.white)),
+        content: const Text(
+          'Anda akan mengubah foto profil. Aplikasi mungkin akan meminta izin akses kamera/galeri.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Batal', style: TextStyle(color: Colors.white)),
           ),
-          content: Column(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orangeAccent),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Lanjutkan'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    // Show source selection
+    final source = await showModalBottomSheet<ImageSource?>(
+      context: context,
+      backgroundColor: const Color(0xFF00345B),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                leading: const Icon(
-                  Icons.photo_library,
-                  color: Colors.orangeAccent,
-                ),
-                title: const Text(
-                  'Dari Galeri',
-                  style: TextStyle(color: Colors.white),
-                ),
-                onTap: () async {
-                  Navigator.pop(context);
-                  final pickedFile = await picker.pickImage(
-                    source: ImageSource.gallery,
-                  );
-                  if (pickedFile != null) {
-                    await _saveProfileImage(pickedFile.path);
-                  }
-                },
+                leading: const Icon(Icons.photo_library, color: Colors.orangeAccent),
+                title: const Text('Dari Galeri', style: TextStyle(color: Colors.white)),
+                onTap: () => Navigator.of(ctx).pop(ImageSource.gallery),
               ),
               ListTile(
-                leading: const Icon(
-                  Icons.camera_alt,
-                  color: Colors.orangeAccent,
-                ),
-                title: const Text(
-                  'Ambil Foto',
-                  style: TextStyle(color: Colors.white),
-                ),
-                onTap: () async {
-                  Navigator.pop(context);
-                  final pickedFile = await picker.pickImage(
-                    source: ImageSource.camera,
-                  );
-                  if (pickedFile != null) {
-                    await _saveProfileImage(pickedFile.path);
-                  }
-                },
+                leading: const Icon(Icons.camera_alt, color: Colors.orangeAccent),
+                title: const Text('Ambil Foto', style: TextStyle(color: Colors.white)),
+                onTap: () => Navigator.of(ctx).pop(ImageSource.camera),
               ),
+              const SizedBox(height: 8),
             ],
           ),
         );
       },
     );
+
+    if (source == null) return;
+
+    // Request necessary permission based on source
+    bool granted = true;
+    try {
+      if (source == ImageSource.camera) {
+        final status = await Permission.camera.request();
+        granted = status.isGranted;
+        if (!granted && status.isPermanentlyDenied) {
+          // Ask user to open settings
+          final goSettings = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              backgroundColor: const Color(0xFF00345B),
+              title: const Text('Izin Kamera Diperlukan', style: TextStyle(color: Colors.white)),
+              content: const Text('Silakan aktifkan izin kamera pada pengaturan aplikasi untuk menggunakan fitur ini.', style: TextStyle(color: Colors.white70)),
+              actions: [
+                TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Batal', style: TextStyle(color: Colors.white))),
+                ElevatedButton(onPressed: () => Navigator.of(ctx).pop(true), style: ElevatedButton.styleFrom(backgroundColor: Colors.orangeAccent), child: const Text('Buka Pengaturan')),
+              ],
+            ),
+          );
+          if (goSettings == true) openAppSettings();
+        }
+        } else {
+        // Gallery permission: platform-specific. On Android 13+ we should
+        // request the photos/media permission (READ_MEDIA_IMAGES). The
+        // permission_handler exposes `Permission.photos` which maps accordingly
+        // on Android/iOS. Try `Permission.photos` first for broader coverage,
+        // fallback to storage on older Android versions.
+        if (Platform.isAndroid) {
+          // Try requesting photos/media permission (Android 13+)
+          var status = await Permission.photos.request();
+          granted = status.isGranted;
+
+          // If not available/granted, fallback to legacy storage permission
+          if (!granted) {
+            status = await Permission.storage.request();
+            granted = status.isGranted;
+          }
+
+          if (!granted && status.isPermanentlyDenied) {
+            final goSettings = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                backgroundColor: const Color(0xFF00345B),
+                title: const Text('Izin Penyimpanan Diperlukan', style: TextStyle(color: Colors.white)),
+                content: const Text('Silakan aktifkan izin penyimpanan pada pengaturan aplikasi untuk memilih foto dari galeri.', style: TextStyle(color: Colors.white70)),
+                actions: [
+                  TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Batal', style: TextStyle(color: Colors.white))),
+                  ElevatedButton(onPressed: () => Navigator.of(ctx).pop(true), style: ElevatedButton.styleFrom(backgroundColor: Colors.orangeAccent), child: const Text('Buka Pengaturan')),
+                ],
+              ),
+            );
+            if (goSettings == true) openAppSettings();
+          }
+        } else if (Platform.isIOS) {
+          final status = await Permission.photos.request();
+          granted = status.isGranted;
+          if (!granted && status.isPermanentlyDenied) {
+            final goSettings = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                backgroundColor: const Color(0xFF00345B),
+                title: const Text('Izin Foto Diperlukan', style: TextStyle(color: Colors.white)),
+                content: const Text('Silakan aktifkan izin Foto pada pengaturan aplikasi untuk memilih gambar dari galeri.', style: TextStyle(color: Colors.white70)),
+                actions: [
+                  TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Batal', style: TextStyle(color: Colors.white))),
+                  ElevatedButton(onPressed: () => Navigator.of(ctx).pop(true), style: ElevatedButton.styleFrom(backgroundColor: Colors.orangeAccent), child: const Text('Buka Pengaturan')),
+                ],
+              ),
+            );
+            if (goSettings == true) openAppSettings();
+          }
+        }
+      }
+    } catch (_) {
+      granted = false;
+    }
+
+    if (!granted) return;
+
+    // pick image
+    final pickedFile = await picker.pickImage(source: source);
+    if (pickedFile == null) return;
+
+    // show preview and ask confirm before saving
+    final confirmSave = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF00345B),
+        title: const Text('Preview Foto', style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Image.file(File(pickedFile.path), width: 180, height: 180, fit: BoxFit.cover),
+            const SizedBox(height: 12),
+            const Text('Simpan foto ini sebagai foto profil?', style: TextStyle(color: Colors.white70)),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Batal', style: TextStyle(color: Colors.white))),
+          ElevatedButton(onPressed: () => Navigator.of(ctx).pop(true), style: ElevatedButton.styleFrom(backgroundColor: Colors.orangeAccent), child: const Text('Simpan')),
+        ],
+      ),
+    );
+
+    if (confirmSave == true) {
+      await _saveProfileImage(pickedFile.path);
+    }
   }
 
   /// 🔹 Simpan gambar profil ke Hive
@@ -554,28 +664,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       context: context,
                       builder: (ctx) => AlertDialog(
                         backgroundColor: const Color(0xFF00345B),
-                        title: const Text(
-                          'Konfirmasi',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                        content: const Text(
-                          'Anda yakin ingin keluar?',
-                          style: TextStyle(color: Colors.white70),
-                        ),
+                        title: const Text('Konfirmasi', style: TextStyle(color: Colors.white)),
+                        content: const Text('Anda yakin ingin keluar?', style: TextStyle(color: Colors.white70)),
                         actions: [
                           TextButton(
+                            style: TextButton.styleFrom(foregroundColor: Colors.white),
                             onPressed: () => Navigator.of(ctx).pop(false),
-                            child: const Text(
-                              'Batal',
-                              style: TextStyle(color: Colors.white),
-                            ),
+                            child: const Text('Batal'),
                           ),
-                          TextButton(
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
                             onPressed: () => Navigator.of(ctx).pop(true),
-                            child: const Text(
-                              'Keluar',
-                              style: TextStyle(color: Colors.redAccent),
-                            ),
+                            child: const Text('Keluar'),
                           ),
                         ],
                       ),

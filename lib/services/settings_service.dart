@@ -13,6 +13,8 @@ class SettingsService {
 
   static const _kTimeZone = 'time_zone';
   static final ValueNotifier<String> timeZone = ValueNotifier<String>('WIB');
+  static const _kUseRemoteMateri = 'use_remote_materi';
+  static final ValueNotifier<bool> useRemoteMateri = ValueNotifier<bool>(false);
 
   /// Initialize settings from SharedPreferences. Call once at app startup
   static Future<void> init() async {
@@ -35,6 +37,12 @@ class SettingsService {
     }
 
     timeZone.value = tz;
+    // remote materi toggle
+    try {
+      useRemoteMateri.value = prefs.getBool(_kUseRemoteMateri) ?? false;
+    } catch (_) {
+      useRemoteMateri.value = false;
+    }
   }
 
   static Future<void> setAllowLocation(bool v) async {
@@ -62,5 +70,11 @@ class SettingsService {
     } catch (_) {}
 
     timeZone.value = zone;
+  }
+
+  static Future<void> setUseRemoteMateri(bool v) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kUseRemoteMateri, v);
+    useRemoteMateri.value = v;
   }
 }

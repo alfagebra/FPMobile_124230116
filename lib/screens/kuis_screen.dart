@@ -28,6 +28,7 @@ class _KuisScreenState extends State<KuisScreen> with RouteAware {
   int? _selectedIndex;
   bool _isAnswered = false;
   int _maxQuestions = 0; // 0 = all
+  bool _promptShown = false;
 
   final FlutterLocalNotificationsPlugin _notif =
       FlutterLocalNotificationsPlugin();
@@ -101,6 +102,13 @@ class _KuisScreenState extends State<KuisScreen> with RouteAware {
     if (_isFinished) {
       _debouncer.run(() => _loadAllQuestions());
     }
+    // When coming back to this route, try to show prompt if questions are ready
+    WidgetsBinding.instance.addPostFrameCallback((_) => _promptIfNeeded());
+  }
+
+  @override
+  void didPush() {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _promptIfNeeded());
   }
 
   Future<void> _initNotif() async {
@@ -222,13 +230,9 @@ class _KuisScreenState extends State<KuisScreen> with RouteAware {
       setState(() {
         _allQuestions = all;
         _isLoading = false;
+        // Reset prompt flag so we can show it when the user actually visits
+        _promptShown = false;
       });
-
-      // Prompt the user to choose how many questions they want to attempt
-      if (mounted) {
-        debugPrint('▶️ KuisScreen about to prompt question count');
-        await _promptQuestionCount();
-      }
     } catch (e) {
       debugPrint("❌ Error load kuis: $e");
       setState(() => _isLoading = false);
@@ -247,6 +251,18 @@ class _KuisScreenState extends State<KuisScreen> with RouteAware {
       await _recordQuizHistory(_score, _allQuestions.length);
       setState(() => _isFinished = true);
     }
+  }
+
+  Future<void> _promptIfNeeded() async {
+    if (!mounted) return;
+    if (_promptShown) return;
+    if (_isLoading) return;
+    if (_allQuestions.isEmpty) return;
+    final isCurrent = ModalRoute.of(context)?.isCurrent ?? false;
+    if (!isCurrent) return;
+    debugPrint('▶️ KuisScreen._promptIfNeeded - showing prompt');
+    await _promptQuestionCount();
+    _promptShown = true;
   }
 
   Future<void> _promptQuestionCount() async {

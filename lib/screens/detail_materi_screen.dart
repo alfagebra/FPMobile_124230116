@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../widgets/custom_app_bar.dart';
 import '../models/docs_model.dart';
 import '../services/progress_service.dart';
+import '../database/hive_database.dart';
 import 'detail_materi/konten_builders.dart';
 import 'detail_materi/konten_sections.dart';
 
@@ -30,11 +31,22 @@ class _DetailMateriScreenState extends State<DetailMateriScreen> {
 
   /// ✅ Simpan progres saat submateri dibuka
   Future<void> _saveProgress() async {
-    await ProgressService.saveProgress(
-      widget.topik.topikId,
-      widget.subIndex,
-      true,
-    );
+    try {
+      final hive = HiveDatabase();
+      final email = await hive.getCurrentUserEmail();
+      await ProgressService.saveProgress(
+        widget.topik.topikId,
+        widget.subIndex,
+        true,
+        userEmail: email,
+      );
+    } catch (_) {
+      await ProgressService.saveProgress(
+        widget.topik.topikId,
+        widget.subIndex,
+        true,
+      );
+    }
   }
 
   @override

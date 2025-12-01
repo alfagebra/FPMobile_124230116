@@ -117,6 +117,27 @@ class _SettingsDetailScreenState extends State<SettingsDetailScreen> {
                       },
                     ),
                   ),
+                  const SizedBox(height: 8),
+
+                  // Remote materi toggle
+                  ValueListenableBuilder<bool>(
+                    valueListenable: SettingsService.useRemoteMateri,
+                    builder: (context, enabled, _) => SwitchListTile(
+                      title: const Text('Gunakan API Remote Materi', style: TextStyle(color: Colors.white)),
+                      subtitle: Text(
+                        enabled
+                            ? 'Ambil materi dari server pengembangan (Node API).'
+                            : 'Gunakan materi bawaan aplikasi (assets).',
+                        style: const TextStyle(color: Colors.white70),
+                      ),
+                      value: enabled,
+                      activeColor: Colors.orangeAccent,
+                      onChanged: (v) async {
+                        await SettingsService.setUseRemoteMateri(v);
+                        setState(() {});
+                      },
+                    ),
+                  ),
                 ],
               ),
             ),

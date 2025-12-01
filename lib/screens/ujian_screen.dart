@@ -4,6 +4,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/docs_model.dart';
 import '../services/notification_service.dart';
+import '../services/api_service.dart';
+import '../services/settings_service.dart';
 
 class UjianScreen extends StatefulWidget {
   final Topik topik;
@@ -18,10 +20,22 @@ class _UjianScreenState extends State<UjianScreen> {
   int _score = 0;
   int? _selectedIndex;
   bool _isAnswered = false;
+  Topik? _currentTopik;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentTopik = widget.topik;
+    // If remote materi is enabled, attempt to load latest topic from API
+    if (SettingsService.useRemoteMateri.value) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _loadRemoteTopik());
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final kuisList = widget.topik.kuis;
+    final topik = _currentTopik ?? widget.topik;
+    final kuisList = topik.kuis;
     final total = kuisList.length;
 
     return Scaffold(
@@ -40,6 +54,25 @@ class _UjianScreenState extends State<UjianScreen> {
           : _buildQuestionPage(kuisList[_currentQuestionIndex], total),
     );
   }
+
+  Future<void> _loadRemoteTopik() async {
+    try {
+      final api = ApiService();
+      final data = await api.getTopicById(widget.topik.topikId);
+      if (data is Map<String, dynamic>) {
+        final remoteTopik = Topik.fromJson(data);
+        if (!mounted) return;
+        setState(() {
+          _currentTopik = remoteTopik;
+        });
+      }
+    } catch (e) {
+      debugPrint('⚠️ UjianScreen: gagal memuat topic remote: $e');
+      // keep local topic as fallback
+    }
+  }
+
+  // UjianScreen no longer asks for question count; it uses the topic's kuis list.
 
   Widget _buildQuestionPage(Kuis kuis, int total) {
     return SingleChildScrollView(

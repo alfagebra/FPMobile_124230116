@@ -76,16 +76,18 @@ class _BabCardCleanState extends State<BabCardClean> {
   Widget build(BuildContext context) {
     final totalSub = _getTotalSub();
 
-    final combinedFuture = Future.wait([
-      _prevExamDone(),
-      Future.wait(
-        List.generate(
-          totalSub,
-          (i) => ProgressService.getProgress(widget.topik.topikId, i),
-        ),
-      ),
-      _getExamResult(),
-    ]);
+    final combinedFuture = HiveDatabase()
+        .getCurrentUserEmail()
+        .then((email) => Future.wait([
+              _prevExamDone(),
+              Future.wait(
+                List.generate(
+                  totalSub,
+                  (i) => ProgressService.getProgress(widget.topik.topikId, i, userEmail: email),
+                ),
+              ),
+              _getExamResult(),
+            ]));
 
     return FutureBuilder<List<dynamic>>(
       future: combinedFuture,
@@ -330,11 +332,22 @@ class _BabCardCleanState extends State<BabCardClean> {
                         ),
                       ),
                     );
-                    await ProgressService.saveProgress(
-                      widget.topik.topikId,
-                      i,
-                      true,
-                    );
+                    try {
+                      final hive = HiveDatabase();
+                      final current = await hive.getCurrentUserEmail();
+                      await ProgressService.saveProgress(
+                        widget.topik.topikId,
+                        i,
+                        true,
+                        userEmail: current,
+                      );
+                    } catch (_) {
+                      await ProgressService.saveProgress(
+                        widget.topik.topikId,
+                        i,
+                        true,
+                      );
+                    }
                     setState(() {});
                   },
                   child: Container(

@@ -39,6 +39,9 @@ class InAppNotification {
 class InAppNotificationService {
   static const _kKey = 'in_app_notifications';
   static final ValueNotifier<int> unreadCount = ValueNotifier<int>(0);
+  // Expose the current notifications list so UI can listen for updates
+  static final ValueNotifier<List<InAppNotification>> notifications =
+      ValueNotifier<List<InAppNotification>>([]);
 
   static Future<List<InAppNotification>> _readAll() async {
     final prefs = await SharedPreferences.getInstance();
@@ -65,6 +68,8 @@ class InAppNotificationService {
         : _kKey;
     final raw = items.map((i) => jsonEncode(i.toJson())).toList();
     await prefs.setStringList(key, raw);
+    // newest first for UI convenience
+    notifications.value = items.reversed.toList();
     unreadCount.value = items.where((i) => !i.read).length;
   }
 
@@ -102,6 +107,8 @@ class InAppNotificationService {
   static Future<void> init() async {
     // initialize unread count
     final list = await _readAll();
+    // store newest-first for listeners
+    notifications.value = list.reversed.toList();
     unreadCount.value = list.where((i) => !i.read).length;
   }
 }
