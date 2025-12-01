@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
+import 'package:bcrypt/bcrypt.dart';
 import '../services/progress_service.dart';
 
 class HiveDatabase {
@@ -26,10 +27,13 @@ class HiveDatabase {
       throw Exception('Email sudah terdaftar');
     }
 
+    // Hash password sebelum disimpan
+    final hashedPassword = BCrypt.hashpw(password.trim(), BCrypt.gensalt());
+
     final userMap = {
       'username': username.trim(),
       'email': normalizedEmail,
-      'password': password.trim(),
+      'password': hashedPassword,
       'isPremium': false,
       'progress': 0.0,
       'createdAt': DateTime.now().toIso8601String(),
@@ -72,8 +76,6 @@ class HiveDatabase {
     final storedPassword = (userMap['password'] ?? '').toString().trim();
 
     if (storedPassword == password.trim()) {
-      // Simpan kedua key untuk kompatibilitas: sebagian kode memakai
-      // 'currentUser' dan sebagian lain 'current_email'
       await box.put('currentUser', identifier);
       await box.put('current_email', identifier);
       return userMap;
@@ -139,18 +141,37 @@ class HiveDatabase {
     final box = await _openBox();
     final user = box.get(email.trim().toLowerCase());
     if (user == null) return false;
-    final userMap = Map<String, dynamic>.from(user);
-    return (userMap['isPremium'] ?? false) as bool;
-  }
+    final userMap = Map<String, dynamic>.from(data);
+    final storedPassword = (userMap['password'] ?? '').toString();
+    final plainPassword = password.trim();
 
-  /// 🔹 Simpan progress user ke Hive
-  Future<void> saveUserProgress(String email, double progress) async {
-    final box = await _openBox();
-    final user = box.get(email.trim().toLowerCase());
-    if (user == null) return;
+    // Deteksi apakah storedPassword sudah berupa bcrypt hash
+    final isBcryptHash = RegExp(r'^\$2[aby]\$').hasMatch(storedPassword);
 
-    final userMap = Map<String, dynamic>.from(user);
-    userMap['progress'] = progress;
+    if (isBcryptHash) {
+      // Verifikasi hash
+      final ok = BCrypt.checkpw(plainPassword, storedPassword);
+      if (!ok) return null;
+    } else {
+      // Jika masih plaintext di DB (migrasi), bandingkan langsung dan re-hash
+      if (storedPassword.trim() != plainPassword) return null;
+
+      // Re-hash dan simpan agar ke depan aman
+      try {
+        final newHash = BCrypt.hashpw(plainPassword, BCrypt.gensalt());
+        final updated = {...userMap, 'password': newHash};
+        await box.put(identifier, updated);
+      } catch (e) {
+        // Jika gagal re-hash, jangan block login; hanya log
+        debugPrint('⚠️ Gagal re-hash password saat login: $e');
+      }
+    }
+
+    // Simpan kedua key untuk kompatibilitas: sebagian kode memakai
+    // 'currentUser' dan sebagian lain 'current_email'
+    await box.put('currentUser', identifier);
+    await box.put('current_email', identifier);
+    return userMap;
     await box.put(email.trim().toLowerCase(), userMap);
   }
 
