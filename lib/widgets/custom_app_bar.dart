@@ -9,6 +9,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
   final Color backgroundColor;
   final bool centerTitle;
   final bool showNotifications;
+  final List<Widget>? actions;
 
   const CustomAppBar({
     super.key,
@@ -17,6 +18,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.backgroundColor = Palette.primaryDark,
     this.centerTitle = true,
     this.showNotifications = false,
+    this.actions,
   });
 
   @override
@@ -33,12 +35,14 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
       backgroundColor: backgroundColor,
       centerTitle: centerTitle,
       iconTheme: const IconThemeData(color: Colors.white),
-      actions: showNotifications ? [
-        Padding(
-          padding: const EdgeInsets.only(right: 8.0),
-          child: NotificationBadge(),
-        )
-      ] : null,
+      actions: [
+        if (showNotifications)
+          const Padding(
+            padding: EdgeInsets.only(right: 8.0),
+            child: NotificationBadge(),
+          ),
+        if (actions != null) ...actions!,
+      ],
     );
   }
 

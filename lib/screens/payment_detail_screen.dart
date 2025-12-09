@@ -238,7 +238,10 @@ class _PaymentDetailScreenState extends State<PaymentDetailScreen> {
             // Time zone selector (syncs with SettingsService)
             Row(
               children: [
-                const Text('Zona Waktu: ', style: TextStyle(color: Colors.white)),
+                const Text(
+                  'Zona Waktu: ',
+                  style: TextStyle(color: Colors.white),
+                ),
                 const SizedBox(width: 8),
                 ValueListenableBuilder<String>(
                   valueListenable: SettingsService.timeZone,
@@ -248,9 +251,18 @@ class _PaymentDetailScreenState extends State<PaymentDetailScreen> {
                       value: tz,
                       style: const TextStyle(color: Colors.white),
                       items: _timeZones
-                          .map((z) => DropdownMenuItem(value: z, child: Text(z, style: const TextStyle(color: Colors.white))))
+                          .map(
+                            (z) => DropdownMenuItem(
+                              value: z,
+                              child: Text(
+                                z,
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                            ),
+                          )
                           .toList(),
-                      onChanged: (v) => v != null ? SettingsService.setTimeZone(v) : null,
+                      onChanged: (v) =>
+                          v != null ? SettingsService.setTimeZone(v) : null,
                     );
                   },
                 ),
@@ -355,7 +367,10 @@ class _PaymentDetailScreenState extends State<PaymentDetailScreen> {
           ),
           const SizedBox(height: 10),
           _buildInvoiceRow("Paket", widget.planName),
-          _buildInvoiceRow("Harga", CurrencyUtils.format(widget.price, 'IDR', approximate: true)),
+          _buildInvoiceRow(
+            "Harga",
+            CurrencyUtils.format(widget.price, 'IDR', approximate: true),
+          ),
           _buildInvoiceRow(
             "Dibayar",
             CurrencyUtils.format(_paidAmount ?? 0, _from),
@@ -366,11 +381,11 @@ class _PaymentDetailScreenState extends State<PaymentDetailScreen> {
               CurrencyUtils.format(_convertedPaid ?? 0, _to),
             ),
           if (_change != null)
-              _buildInvoiceRow(
-                _change! >= 0 ? "Kembalian" : "Kurang",
-                CurrencyUtils.format(_change!.abs(), _from),
-                valueColor: _change! >= 0 ? Colors.greenAccent : Colors.redAccent,
-              ),
+            _buildInvoiceRow(
+              _change! >= 0 ? "Kembalian" : "Kurang",
+              CurrencyUtils.format(_change!.abs(), _from),
+              valueColor: _change! >= 0 ? Colors.greenAccent : Colors.redAccent,
+            ),
           if (_convertedChange != null)
             _buildInvoiceRow(
               "≈ Dalam $_to",
@@ -433,6 +448,13 @@ class _PaymentDetailScreenState extends State<PaymentDetailScreen> {
         offset = const Duration(hours: 7);
     }
     final zoneTime = dt.toUtc().add(offset);
-    return DateFormat('d MMM yyyy, HH:mm', 'id_ID').format(zoneTime);
+    // Build human-friendly label: e.g. "WIB (GMT+7)" or "WITA (GMT+8)"
+    final label = currentZone == 'GMT' ? 'GMT' : currentZone;
+    final gmtOffset = offset.inHours >= 0
+        ? '+${offset.inHours}'
+        : '${offset.inHours}';
+    final gmtLabel = 'GMT$gmtOffset';
+    final formatted = DateFormat('d MMM yyyy, HH:mm', 'id_ID').format(zoneTime);
+    return '$formatted ($label, $gmtLabel)';
   }
 }

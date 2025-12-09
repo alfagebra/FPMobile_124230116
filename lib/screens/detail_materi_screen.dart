@@ -22,10 +22,12 @@ class DetailMateriScreen extends StatefulWidget {
   State<DetailMateriScreen> createState() => _DetailMateriScreenState();
 }
 
-class _DetailMateriScreenState extends State<DetailMateriScreen> {
+class _DetailMateriScreenState extends State<DetailMateriScreen>
+    with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _saveProgress();
   }
 
@@ -50,9 +52,30 @@ class _DetailMateriScreenState extends State<DetailMateriScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Persist progress when the app is backgrounded/paused to avoid losing
+    // progress if the user quits while viewing content.
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _saveProgress();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    // ensure last progress is saved
+    _saveProgress();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final kontenItem = widget.kontenItem;
-    final subJudul = (kontenItem['sub_judul'] ?? kontenItem['jenis'] ?? kontenItem['nama'])?.toString() ?? widget.topik.judulTopik;
+    final subJudul =
+        (kontenItem['sub_judul'] ?? kontenItem['jenis'] ?? kontenItem['nama'])
+            ?.toString() ??
+        widget.topik.judulTopik;
     final totalSub = widget.topik.konten is List
         ? (widget.topik.konten as List).length
         : 1;

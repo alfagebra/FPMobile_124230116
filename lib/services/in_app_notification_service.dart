@@ -104,6 +104,18 @@ class InAppNotificationService {
     await _writeAll(list);
   }
 
+  /// Remove a single notification by id.
+  static Future<void> remove(String id) async {
+    final list = await _readAll();
+    list.removeWhere((e) => e.id == id);
+    await _writeAll(list);
+  }
+
+  /// Clear all notifications for the current user.
+  static Future<void> clearAll() async {
+    await _writeAll([]);
+  }
+
   static Future<void> init() async {
     // initialize unread count
     final list = await _readAll();

@@ -4,16 +4,31 @@ import '../database/hive_database.dart';
 
 class ProgressService {
   static const String _keyPrefix = 'progress_';
-  static final _db = HiveDatabase(); // ambil email user dari Hive
+  static final _db = HiveDatabase();
 
-  /// Build key prefix either from provided email or from Hive
   static Future<String> _buildPrefix({String? userEmail}) async {
     final email = userEmail ?? await _db.getCurrentUserEmail() ?? 'guest';
     return '$_keyPrefix${email.toString().trim().toLowerCase()}-';
   }
 
-  /// Simpan progress dari suatu topik
-  /// Optional: provide `userEmail` to avoid timing issues with Hive
+  static Future<Map<String, bool>> getAllProgressForUser({
+    String? userEmail,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final prefix = await _buildPrefix(userEmail: userEmail);
+    final keys = prefs.getKeys().where((k) => k.startsWith(prefix));
+    final Map<String, bool> out = {};
+    for (final k in keys) {
+      out[k] = prefs.getBool(k) ?? false;
+    }
+    if (kDebugMode) {
+      debugPrint(
+        'ProgressService.debugDump -> prefix=$prefix keys=${out.keys.length}',
+      );
+    }
+    return out;
+  }
+
   static Future<void> saveProgress(
     String topikId,
     int index,
@@ -23,21 +38,42 @@ class ProgressService {
     final prefs = await SharedPreferences.getInstance();
     final prefix = await _buildPrefix(userEmail: userEmail);
     final key = '$prefix$topikId-$index';
-    if (kDebugMode) debugPrint('ProgressService.save -> $key = $completed');
-    await prefs.setBool(key, completed);
+    if (kDebugMode) {
+      debugPrint(
+        'ProgressService.save -> $key = $completed (userEmail=$userEmail)',
+      );
+    }
+    try {
+      final ok = await prefs.setBool(key, completed);
+      if (!ok && kDebugMode) {
+        debugPrint(
+          'ProgressService.save -> setBool returned false, retrying: $key',
+        );
+        final ok2 = await prefs.setBool(key, completed);
+        if (!ok2) debugPrint('ProgressService.save -> RETRY FAILED: $key');
+      }
+    } catch (e) {
+      if (kDebugMode)
+        debugPrint('ProgressService.save -> exception saving $key: $e');
+      rethrow;
+    }
   }
 
-  /// Ambil status progress dari topik tertentu
-  static Future<bool> getProgress(String topikId, int index, {String? userEmail}) async {
+  static Future<bool> getProgress(
+    String topikId,
+    int index, {
+    String? userEmail,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     final prefix = await _buildPrefix(userEmail: userEmail);
     final key = '$prefix$topikId-$index';
     final val = prefs.getBool(key) ?? false;
-    if (kDebugMode) debugPrint('ProgressService.get -> $key = $val');
+    if (kDebugMode) {
+      debugPrint('ProgressService.get -> $key = $val (userEmail=$userEmail)');
+    }
     return val;
   }
 
-  /// Hapus semua progress dari satu topik
   static Future<void> clearProgress(String topikId, {String? userEmail}) async {
     final prefs = await SharedPreferences.getInstance();
     final prefix = await _buildPrefix(userEmail: userEmail);
@@ -48,7 +84,6 @@ class ProgressService {
     }
   }
 
-  /// Ambil total progress keseluruhan
   static Future<double> getOverallProgress({String? userEmail}) async {
     final prefs = await SharedPreferences.getInstance();
     final prefix = await _buildPrefix(userEmail: userEmail);
@@ -64,18 +99,21 @@ class ProgressService {
 
     final progress = completedCount / keys.length;
 
-    // Sinkronkan dengan Hive (update progress total user)
     final email = userEmail ?? await _db.getCurrentUserEmail();
     if (email != null) {
       await _db.saveUserProgress(email, progress);
     }
 
-    if (kDebugMode) debugPrint('ProgressService.overall -> $prefix progress=$progress');
+    if (kDebugMode) {
+      debugPrint('ProgressService.overall -> $prefix progress=$progress');
+    }
     return progress;
   }
 
-  /// Ambil progress untuk 1 topik tertentu
-  static Future<double> getTopicProgress(String topikId, {String? userEmail}) async {
+  static Future<double> getTopicProgress(
+    String topikId, {
+    String? userEmail,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     final prefix = await _buildPrefix(userEmail: userEmail);
     final keys = prefs
@@ -92,11 +130,12 @@ class ProgressService {
     }
 
     final val = completedCount / keys.length;
-    if (kDebugMode) debugPrint('ProgressService.topic($topikId) -> $prefix value=$val');
+    if (kDebugMode) {
+      debugPrint('ProgressService.topic($topikId) -> $prefix value=$val');
+    }
     return val;
   }
 
-  /// Hapus semua progress user saat ini (dipanggil saat logout)
   static Future<void> clearAllUserProgress({String? userEmail}) async {
     final prefs = await SharedPreferences.getInstance();
     final prefix = await _buildPrefix(userEmail: userEmail);
@@ -105,5 +144,34 @@ class ProgressService {
       if (kDebugMode) debugPrint('ProgressService.clearAll -> $key');
       await prefs.remove(key);
     }
+  }
+
+  static Future<void> migrateGuestProgress(String targetEmail) async {
+    final prefs = await SharedPreferences.getInstance();
+    final guestPrefix = '$_keyPrefix' + 'guest-';
+    final targetPrefix = await _buildPrefix(userEmail: targetEmail);
+
+    final keys = prefs
+        .getKeys()
+        .where((k) => k.startsWith(guestPrefix))
+        .toList();
+    if (keys.isEmpty) return;
+
+    for (final oldKey in keys) {
+      final val = prefs.getBool(oldKey);
+      if (val == null) continue;
+      final newKey = oldKey.replaceFirst(guestPrefix, targetPrefix);
+      if (kDebugMode) {
+        debugPrint('ProgressService.migrate: $oldKey -> $newKey ($val)');
+      }
+      await prefs.setBool(newKey, val);
+      await prefs.remove(oldKey);
+    }
+
+    final overall = await getOverallProgress(userEmail: targetEmail);
+    try {
+      final email = targetEmail;
+      await _db.saveUserProgress(email, overall);
+    } catch (_) {}
   }
 }

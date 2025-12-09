@@ -7,7 +7,7 @@ import 'screens/splash_screen.dart';
 import 'screens/premium_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
-import 'services/user_status_service.dart';
+import 'screens/home_screen.dart';
 import 'services/settings_service.dart';
 import 'database/hive_database.dart';
 import 'services/in_app_notification_service.dart';
@@ -46,19 +46,37 @@ Future<void> main() async {
   // 🔹 Initialize local/OS notifications (request permissions etc.)
   await NotificationService.init();
 
-  // 🔹 Ambil status user
-  final isPremium = await UserStatusService.isPremium();
-  final username = await UserStatusService.getUsername();
+  // 🔹 Restore session: check if a user is currently logged in
+  final hiveDb = HiveDatabase();
+  final currentEmail = await hiveDb.getCurrentUserEmail();
 
-  runApp(EjaMateApp(isPremium: isPremium, username: username ?? 'Pengguna'));
+  String? username;
+  bool isPremium = false;
+  bool hasSession = false;
+
+  if (currentEmail != null) {
+    hasSession = true;
+    username = await hiveDb.getUsername(currentEmail) ?? 'Pengguna';
+    isPremium = await hiveDb.isPremium(currentEmail);
+  }
+
+  runApp(
+    EjaMateApp(
+      hasSession: hasSession,
+      isPremium: isPremium,
+      username: username ?? 'Pengguna',
+    ),
+  );
 }
 
 class EjaMateApp extends StatelessWidget {
+  final bool hasSession;
   final bool isPremium;
   final String username;
 
   const EjaMateApp({
     super.key,
+    required this.hasSession,
     required this.isPremium,
     required this.username,
   });
@@ -80,7 +98,11 @@ class EjaMateApp extends StatelessWidget {
         ),
       ),
       navigatorObservers: [routeObserver],
-      home: SplashScreenWrapper(isPremium: isPremium, username: username),
+      home: SplashScreenWrapper(
+        hasSession: hasSession,
+        isPremium: isPremium,
+        username: username,
+      ),
       routes: {
         '/login': (context) => const LoginScreen(),
         '/register': (context) => const RegisterScreen(),
@@ -91,11 +113,13 @@ class EjaMateApp extends StatelessWidget {
 
 /// Splash screen wrapper that shows splash, then navigates to home or login
 class SplashScreenWrapper extends StatefulWidget {
+  final bool hasSession;
   final bool isPremium;
   final String username;
 
   const SplashScreenWrapper({
     super.key,
+    required this.hasSession,
     required this.isPremium,
     required this.username,
   });
@@ -111,13 +135,23 @@ class _SplashScreenWrapperState extends State<SplashScreenWrapper> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Future.delayed(const Duration(seconds: 3), () {
         if (!mounted) return;
-        if (widget.isPremium) {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(
-              builder: (_) => PremiumScreen(username: widget.username),
-            ),
-          );
+        if (widget.hasSession) {
+          // If the session exists, navigate to Premium or Home depending on premium flag
+          if (widget.isPremium) {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(
+                builder: (_) => PremiumScreen(username: widget.username),
+              ),
+            );
+          } else {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(
+                builder: (_) => HomeScreen(username: widget.username),
+              ),
+            );
+          }
         } else {
+          // No session -> show login
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(builder: (_) => const LoginScreen()),
           );

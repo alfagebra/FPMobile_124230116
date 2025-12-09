@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/user_status_service.dart';
+import '../database/hive_database.dart';
 import 'home_tab.dart';
 import 'payment_offer_screen.dart';
 import 'kuis_screen.dart';
@@ -66,6 +67,17 @@ class _HomeScreenState extends State<HomeScreen> {
       _pages[2] = const KuisScreen();
     }
     setState(() => _selectedIndex = index);
+
+    // Persist per-user last_tab so premium sessions and restarts can restore
+    // the last-used tab regardless of which screen class saved it previously.
+    try {
+      HiveDatabase().getCurrentUserEmail().then((current) async {
+        if (current != null) {
+          final hive = HiveDatabase();
+          await hive.updateUser(current, {'last_tab': index});
+        }
+      });
+    } catch (_) {}
   }
 
   @override

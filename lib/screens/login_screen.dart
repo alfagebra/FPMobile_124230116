@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../database/hive_database.dart';
 import 'register_screen.dart';
-import 'home_screen.dart'; // ganti dengan halaman utama kamu
+import 'home_screen.dart';
 import '../services/user_status_service.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -29,33 +29,33 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() => _isLoading = true);
     final db = HiveDatabase();
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
 
     try {
       final user = await db.loginUser(emailOrUsername, password);
 
       if (user != null) {
-        // update global username notifier so UI updates
         await UserStatusService.refreshUsername();
         if (!mounted) return;
-        Navigator.pushReplacement(
-          context,
+        navigator.pushReplacement(
           MaterialPageRoute(
             builder: (_) => HomeScreen(username: user['username']),
           ),
         );
       } else {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           const SnackBar(content: Text("Email atau password salah.")),
         );
-
-        // 🔍 Debug: lihat isi Hive saat login gagal
         await db.printAllUsers();
       }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Terjadi kesalahan: $e")));
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text("Terjadi kesalahan: $e")),
+        );
+      }
     }
 
     setState(() => _isLoading = false);
@@ -126,7 +126,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                       const SizedBox(height: 30),
-                        _isLoading
+                      _isLoading
                           ? const CircularProgressIndicator()
                           : ElevatedButton(
                               style: ElevatedButton.styleFrom(
@@ -142,7 +142,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 "Login",
                                 style: TextStyle(fontSize: 18),
                               ),
-                              ),
+                            ),
                       const SizedBox(height: 15),
                       TextButton(
                         onPressed: () {
@@ -168,7 +168,4 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
   }
-
-
-
 }

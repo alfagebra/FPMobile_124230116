@@ -3,11 +3,10 @@ import '../widgets/custom_app_bar.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../main.dart';
-import 'package:flutter/widgets.dart';
 import '../models/quiz_history.dart';
 import '../services/quiz_history_service.dart';
 import '../database/hive_database.dart';
-import 'quiz_history_screen.dart';
+import '../widgets/quiz_history_badge.dart';
 import '../models/docs_model.dart';
 import '../services/docs_service.dart';
 import '../utils/debouncer.dart';
@@ -21,6 +20,7 @@ class KuisScreen extends StatefulWidget {
 
 class _KuisScreenState extends State<KuisScreen> with RouteAware {
   List<Kuis> _allQuestions = [];
+  List<Kuis> _lastSessionQuestions = [];
   bool _isLoading = true;
   bool _isFinished = false;
   int _currentIndex = 0;
@@ -29,6 +29,7 @@ class _KuisScreenState extends State<KuisScreen> with RouteAware {
   bool _isAnswered = false;
   int _maxQuestions = 0; // 0 = all
   bool _promptShown = false;
+  bool _isPromptShowing = false;
 
   final FlutterLocalNotificationsPlugin _notif =
       FlutterLocalNotificationsPlugin();
@@ -51,10 +52,17 @@ class _KuisScreenState extends State<KuisScreen> with RouteAware {
 
     for (final m in matches) {
       if (m.start > lastIndex) {
-        children.add(TextSpan(text: input.substring(lastIndex, m.start), style: style));
+        children.add(
+          TextSpan(text: input.substring(lastIndex, m.start), style: style),
+        );
       }
       final token = input.substring(m.start + 1, m.end - 1); // strip *
-      children.add(TextSpan(text: token, style: style.merge(const TextStyle(fontStyle: FontStyle.italic))));
+      children.add(
+        TextSpan(
+          text: token,
+          style: style.merge(const TextStyle(fontStyle: FontStyle.italic)),
+        ),
+      );
       lastIndex = m.end;
     }
 
@@ -98,16 +106,23 @@ class _KuisScreenState extends State<KuisScreen> with RouteAware {
     // Only reload & re-prompt if the previous session was finished.
     // If user already selected a question count and is mid-quiz, do nothing
     // so we don't repeatedly prompt them.
-    debugPrint('▶️ KuisScreen.didPopNext - visible again, finished=$_isFinished');
+    debugPrint(
+      '▶️ KuisScreen.didPopNext - visible again, finished=$_isFinished',
+    );
     if (_isFinished) {
       _debouncer.run(() => _loadAllQuestions());
     }
-    // When coming back to this route, try to show prompt if questions are ready
+    // When coming back to this route, reset prompt flag and try to show
+    // the prompt if questions are ready and the user is not mid-quiz.
+    _promptShown = false;
     WidgetsBinding.instance.addPostFrameCallback((_) => _promptIfNeeded());
   }
 
   @override
   void didPush() {
+    // Reset prompt flag when this route is pushed so the prompt appears
+    // on every fresh navigation to the screen (unless mid-quiz).
+    _promptShown = false;
     WidgetsBinding.instance.addPostFrameCallback((_) => _promptIfNeeded());
   }
 
@@ -171,7 +186,7 @@ class _KuisScreenState extends State<KuisScreen> with RouteAware {
   }
 
   /// 🔹 Gabung kuis dari semua topik (termasuk Kamus)
-  Future<void> _loadAllQuestions() async {
+  Future<void> _loadAllQuestions({bool showPrompt = true}) async {
     debugPrint('▶️ KuisScreen._loadAllQuestions start');
     try {
       final materi = await DocsService.loadPBMMateri();
@@ -226,13 +241,20 @@ class _KuisScreenState extends State<KuisScreen> with RouteAware {
         all.removeRange(_maxQuestions, all.length);
       }
 
-      debugPrint('✅ KuisScreen._loadAllQuestions loaded ${all.length} questions');
+      debugPrint(
+        '✅ KuisScreen._loadAllQuestions loaded ${all.length} questions',
+      );
+      // Save a copy as the current session sequence so "Ulangi Kuis" can reuse it
+      _lastSessionQuestions = List<Kuis>.from(all);
       setState(() {
-        _allQuestions = all;
+        _allQuestions = List<Kuis>.from(all);
         _isLoading = false;
         // Reset prompt flag so we can show it when the user actually visits
         _promptShown = false;
       });
+      // After the frame renders, attempt to show the question-count prompt
+      if (showPrompt)
+        WidgetsBinding.instance.addPostFrameCallback((_) => _promptIfNeeded());
     } catch (e) {
       debugPrint("❌ Error load kuis: $e");
       setState(() => _isLoading = false);
@@ -255,11 +277,16 @@ class _KuisScreenState extends State<KuisScreen> with RouteAware {
 
   Future<void> _promptIfNeeded() async {
     if (!mounted) return;
+    // Don't prompt if already shown, still loading, no questions, or
+    // not the active route. Also avoid prompting if the user is mid-quiz
+    // (i.e. already answered/advanced questions) so we don't interrupt.
     if (_promptShown) return;
     if (_isLoading) return;
     if (_allQuestions.isEmpty) return;
     final isCurrent = ModalRoute.of(context)?.isCurrent ?? false;
     if (!isCurrent) return;
+    if (_currentIndex > 0 && !_isFinished) return;
+
     debugPrint('▶️ KuisScreen._promptIfNeeded - showing prompt');
     await _promptQuestionCount();
     _promptShown = true;
@@ -268,62 +295,74 @@ class _KuisScreenState extends State<KuisScreen> with RouteAware {
   Future<void> _promptQuestionCount() async {
     debugPrint('▶️ KuisScreen._promptQuestionCount showing bottom sheet');
     if (!mounted) return;
-    final max = await showModalBottomSheet<int>(
-      context: context,
-      backgroundColor: const Color(0xFF012D5A),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) {
-        return Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'Pilih jumlah soal',
-                style: TextStyle(
-                  color: Colors.orangeAccent,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
+    if (_isPromptShowing) {
+      debugPrint('▶️ KuisScreen._promptQuestionCount - already showing, skip');
+      return;
+    }
+
+    _isPromptShowing = true;
+    int? max;
+    try {
+      max = await showModalBottomSheet<int>(
+        context: context,
+        backgroundColor: const Color(0xFF012D5A),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        builder: (ctx) {
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Pilih jumlah soal',
+                  style: TextStyle(
+                    color: Colors.orangeAccent,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(ctx, 10),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orangeAccent,
+                const SizedBox(height: 12),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, 10),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orangeAccent,
+                  ),
+                  child: const Text('10 Soal'),
                 ),
-                child: const Text('10 Soal'),
-              ),
-              const SizedBox(height: 8),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(ctx, 20),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orangeAccent,
+                const SizedBox(height: 8),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, 20),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orangeAccent,
+                  ),
+                  child: const Text('20 Soal'),
                 ),
-                child: const Text('20 Soal'),
-              ),
-              const SizedBox(height: 8),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(ctx, 0),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orangeAccent,
+                const SizedBox(height: 8),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, 0),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orangeAccent,
+                  ),
+                  child: const Text('Semua Soal'),
                 ),
-                child: const Text('Semua Soal'),
-              ),
-              const SizedBox(height: 12),
-            ],
-          ),
-        );
-      },
-    );
+                const SizedBox(height: 12),
+              ],
+            ),
+          );
+        },
+      );
+    } finally {
+      _isPromptShowing = false;
+    }
 
     if (!mounted) return;
     if (max == null) return;
+    final int chosen = max; // promote to non-null local variable
     setState(() {
-      _maxQuestions = max;
+      _maxQuestions = chosen;
       if (_maxQuestions > 0 && _maxQuestions < _allQuestions.length) {
         _allQuestions = _allQuestions.sublist(0, _maxQuestions);
       }
@@ -392,6 +431,7 @@ class _KuisScreenState extends State<KuisScreen> with RouteAware {
               children: [
                 ElevatedButton.icon(
                   onPressed: () async {
+                    // Start a fresh shuffled quiz without showing the prompt
                     setState(() {
                       _isFinished = false;
                       _score = 0;
@@ -399,8 +439,48 @@ class _KuisScreenState extends State<KuisScreen> with RouteAware {
                       _isAnswered = false;
                       _selectedIndex = null;
                     });
-                    // Prompt the user to choose question count again
-                    await _promptQuestionCount();
+                    // regenerate & shuffle questions; this also updates _lastSessionQuestions
+                    await _loadAllQuestions(showPrompt: false);
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Soal baru disiapkan'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.shuffle),
+                  label: const Text('Soal Baru'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    setState(() {
+                      _isFinished = false;
+                      _score = 0;
+                      _currentIndex = 0;
+                      _isAnswered = false;
+                      _selectedIndex = null;
+                    });
+                    // Reuse the previous session's question order. If not available,
+                    // fall back to loading a fresh shuffled set.
+                    if (_lastSessionQuestions.isNotEmpty) {
+                      setState(() {
+                        _allQuestions = List<Kuis>.from(_lastSessionQuestions);
+                      });
+                    } else {
+                      await _loadAllQuestions(showPrompt: false);
+                    }
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Kuis diulang'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
                   },
                   icon: const Icon(Icons.replay),
                   label: const Text("Ulangi Kuis"),
@@ -416,21 +496,7 @@ class _KuisScreenState extends State<KuisScreen> with RouteAware {
                   ),
                 ),
                 const SizedBox(width: 12),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const QuizHistoryScreen(),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.history),
-                  label: const Text('Riwayat Kuis'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blueGrey,
-                  ),
-                ),
+                // History moved to app bar action for better visibility.
               ],
             ),
           ],
@@ -561,11 +627,19 @@ class _KuisScreenState extends State<KuisScreen> with RouteAware {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF001F3F),
-      appBar: const CustomAppBar(
+      appBar: CustomAppBar(
         title: 'Kuis',
         automaticallyImplyLeading: false,
-        backgroundColor: Color(0xFF012D5A),
+        backgroundColor: const Color(0xFF012D5A),
         centerTitle: true,
+        actions: [
+          // Show a history icon with badge count
+          SizedBox(width: 8),
+          Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: SizedBox(width: 48, child: QuizHistoryBadge()),
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(

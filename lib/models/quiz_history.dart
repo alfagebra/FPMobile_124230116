@@ -3,8 +3,8 @@ class QuizHistory {
   final DateTime time;
   final int correct;
   final int total;
-  final String? email; // optional: the user who took the quiz (email)
-  final String? username; // optional: the username of the user
+  final String? email;
+  final String? username;
 
   QuizHistory({
     required this.id,

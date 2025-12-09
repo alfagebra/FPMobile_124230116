@@ -36,6 +36,52 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         backgroundColor: const Color(0xFF012D5A),
         centerTitle: true,
         iconTheme: const IconThemeData(color: Colors.white),
+        actions: [
+          IconButton(
+            tooltip: 'Hapus semua',
+            icon: const Icon(Icons.delete_forever, color: Colors.white),
+            onPressed: () async {
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  backgroundColor: const Color(0xFF00345B),
+                  title: const Text(
+                    'Hapus semua notifikasi?',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  content: const Text(
+                    'Semua notifikasi akan dihapus.',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                      child: const Text(
+                        'Batal',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orangeAccent,
+                      ),
+                      onPressed: () => Navigator.of(ctx).pop(true),
+                      child: const Text('Hapus'),
+                    ),
+                  ],
+                ),
+              );
+
+              if (confirmed == true) {
+                await InAppNotificationService.clearAll();
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Semua notifikasi dihapus')),
+                );
+              }
+            },
+          ),
+        ],
       ),
       body: _loading
           ? const Center(
@@ -58,39 +104,93 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   itemCount: items.length,
                   itemBuilder: (ctx, i) {
                     final it = items[i];
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Container(
+                    return Dismissible(
+                      key: ValueKey(it.id),
+                      direction: DismissDirection.endToStart,
+                      background: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        alignment: Alignment.centerRight,
                         decoration: BoxDecoration(
-                          color: it.read
-                              ? const Color(0xFF012D5A)
-                              : const Color(0xFF00345B),
+                          color: Colors.red.shade700,
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                          title: Text(
-                            it.title,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
+                        child: const Icon(Icons.delete, color: Colors.white),
+                      ),
+                      confirmDismiss: (dir) async {
+                        // optional confirmation
+                        final res = await showDialog<bool>(
+                          context: context,
+                          builder: (dctx) => AlertDialog(
+                            backgroundColor: const Color(0xFF00345B),
+                            title: const Text(
+                              'Hapus notifikasi',
+                              style: TextStyle(color: Colors.white),
                             ),
-                          ),
-                          subtitle: Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Text(
-                              it.body,
-                              style: const TextStyle(color: Colors.white70),
+                            content: const Text(
+                              'Hapus notifikasi ini?',
+                              style: TextStyle(color: Colors.white70),
                             ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(dctx).pop(false),
+                                child: const Text(
+                                  'Batal',
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                              ),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orangeAccent,
+                                ),
+                                onPressed: () => Navigator.of(dctx).pop(true),
+                                child: const Text('Hapus'),
+                              ),
+                            ],
                           ),
-                          trailing: Text(
-                            TimeOfDay.fromDateTime(it.time).format(context),
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 12,
+                        );
+                        return res == true;
+                      },
+                      onDismissed: (dir) async {
+                        await InAppNotificationService.remove(it.id);
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Notifikasi dihapus')),
+                        );
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: it.read
+                                ? const Color(0xFF012D5A)
+                                : const Color(0xFF00345B),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                            title: Text(
+                              it.title,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            subtitle: Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(
+                                it.body,
+                                style: const TextStyle(color: Colors.white70),
+                              ),
+                            ),
+                            trailing: Text(
+                              TimeOfDay.fromDateTime(it.time).format(context),
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                              ),
                             ),
                           ),
                         ),
