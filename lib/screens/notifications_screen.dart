@@ -37,9 +37,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           ? 'in_app_notifications_${email.trim().toLowerCase()}'
           : null;
       final guestKey = 'in_app_notifications';
-      final rawUser = userKey != null ? prefs.getStringList(userKey) ?? [] : <String>[];
+      final rawUser = userKey != null
+          ? prefs.getStringList(userKey) ?? []
+          : <String>[];
       final rawGuest = prefs.getStringList(guestKey) ?? [];
-      debugPrint('NotificationsScreen._load -> userKey=$userKey guestKey=$guestKey rawUser=${rawUser.length} rawGuest=${rawGuest.length}');
+      debugPrint(
+        'NotificationsScreen._load -> userKey=$userKey guestKey=$guestKey rawUser=${rawUser.length} rawGuest=${rawGuest.length}',
+      );
     } catch (e) {
       debugPrint('NotificationsScreen._load debug error: $e');
     }

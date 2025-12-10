@@ -374,7 +374,9 @@ class _KuisScreenState extends State<KuisScreen> with RouteAware {
     if (!mounted) return;
     // Use the last session pool if available; otherwise use the current
     // _allQuestions as a fallback.
-    final base = _lastSessionQuestions.isNotEmpty ? _lastSessionQuestions : _allQuestions;
+    final base = _lastSessionQuestions.isNotEmpty
+        ? _lastSessionQuestions
+        : _allQuestions;
 
     List<Kuis> next;
     if (max > 0 && max < base.length) {

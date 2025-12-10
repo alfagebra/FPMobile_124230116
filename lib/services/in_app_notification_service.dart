@@ -55,23 +55,30 @@ class InAppNotificationService {
 
     // Read both user and guest lists so notifications created while
     // unauthenticated are still visible after login until migrated.
-    final rawUser = userKey != null ? prefs.getStringList(userKey) ?? [] : <String>[];
+    final rawUser = userKey != null
+        ? prefs.getStringList(userKey) ?? []
+        : <String>[];
     final rawGuest = prefs.getStringList(guestKey) ?? [];
 
-    debugPrint('InAppNotificationService._readAll -> userKey=$userKey guestKey=$guestKey rawUser=${rawUser.length} rawGuest=${rawGuest.length}');
+    debugPrint(
+      'InAppNotificationService._readAll -> userKey=$userKey guestKey=$guestKey rawUser=${rawUser.length} rawGuest=${rawGuest.length}',
+    );
 
     // Merge, with user items first (most recent ordering handled later)
     final merged = <String>[];
     merged.addAll(rawUser);
     // append guest items that are not duplicates by id
-    final existingIds = merged.map((s) {
-      try {
-        final j = jsonDecode(s) as Map<String, dynamic>;
-        return j['id']?.toString();
-      } catch (_) {
-        return null;
-      }
-    }).whereType<String>().toSet();
+    final existingIds = merged
+        .map((s) {
+          try {
+            final j = jsonDecode(s) as Map<String, dynamic>;
+            return j['id']?.toString();
+          } catch (_) {
+            return null;
+          }
+        })
+        .whereType<String>()
+        .toSet();
     for (final s in rawGuest) {
       try {
         final j = jsonDecode(s) as Map<String, dynamic>;
@@ -97,7 +104,9 @@ class InAppNotificationService {
         ? '${_kKey}_${email.trim().toLowerCase()}'
         : _kKey;
     final raw = items.map((i) => jsonEncode(i.toJson())).toList();
-    debugPrint('InAppNotificationService._writeAll -> key=$key count=${raw.length}');
+    debugPrint(
+      'InAppNotificationService._writeAll -> key=$key count=${raw.length}',
+    );
     await prefs.setStringList(key, raw);
     // newest first for UI convenience
     notifications.value = items.reversed.toList();
@@ -165,18 +174,23 @@ class InAppNotificationService {
     final targetKey = '${_kKey}_${targetEmail.trim().toLowerCase()}';
 
     final rawGuest = prefs.getStringList(guestKey) ?? [];
-    debugPrint('InAppNotificationService.migrateGuestNotifications -> guest=${rawGuest.length}');
+    debugPrint(
+      'InAppNotificationService.migrateGuestNotifications -> guest=${rawGuest.length}',
+    );
     if (rawGuest.isEmpty) return;
 
     final rawTarget = prefs.getStringList(targetKey) ?? [];
-    final existingIds = rawTarget.map((s) {
-      try {
-        final j = jsonDecode(s) as Map<String, dynamic>;
-        return j['id']?.toString();
-      } catch (_) {
-        return null;
-      }
-    }).whereType<String>().toSet();
+    final existingIds = rawTarget
+        .map((s) {
+          try {
+            final j = jsonDecode(s) as Map<String, dynamic>;
+            return j['id']?.toString();
+          } catch (_) {
+            return null;
+          }
+        })
+        .whereType<String>()
+        .toSet();
 
     final merged = <String>[];
     merged.addAll(rawTarget);
@@ -189,11 +203,18 @@ class InAppNotificationService {
       merged.add(s);
     }
 
-    debugPrint('InAppNotificationService.migrateGuestNotifications -> writing target=$targetKey merged=${merged.length}');
+    debugPrint(
+      'InAppNotificationService.migrateGuestNotifications -> writing target=$targetKey merged=${merged.length}',
+    );
     await prefs.setStringList(targetKey, merged);
     await prefs.remove(guestKey);
     // refresh in-memory notifiers
-    final list = merged.map((s) => InAppNotification.fromJson(jsonDecode(s) as Map<String, dynamic>)).toList();
+    final list = merged
+        .map(
+          (s) =>
+              InAppNotification.fromJson(jsonDecode(s) as Map<String, dynamic>),
+        )
+        .toList();
     notifications.value = list.reversed.toList();
     unreadCount.value = list.where((i) => !i.read).length;
   }

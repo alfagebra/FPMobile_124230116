@@ -237,7 +237,11 @@ class _PaymentDetailScreenState extends State<PaymentDetailScreen> {
                   child: Icon(Icons.arrow_forward, color: Colors.white),
                 ),
                 Expanded(
-                  child: _buildDropdown("Ke", _to, (val) => setState(() => _to = val!)),
+                  child: _buildDropdown(
+                    "Ke",
+                    _to,
+                    (val) => setState(() => _to = val!),
+                  ),
                 ),
               ],
             ),
