@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../database/hive_database.dart';
 import '../services/in_app_notification_service.dart';
 
 class NotificationsScreen extends StatefulWidget {
@@ -25,6 +28,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     });
     // mark all read when viewing (will update notifier)
     await InAppNotificationService.markAllRead();
+    // Debug: print persisted keys and counts so we can diagnose missing items
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final hive = HiveDatabase();
+      final email = await hive.getCurrentUserEmail();
+      final userKey = email != null && email.isNotEmpty
+          ? 'in_app_notifications_${email.trim().toLowerCase()}'
+          : null;
+      final guestKey = 'in_app_notifications';
+      final rawUser = userKey != null ? prefs.getStringList(userKey) ?? [] : <String>[];
+      final rawGuest = prefs.getStringList(guestKey) ?? [];
+      debugPrint('NotificationsScreen._load -> userKey=$userKey guestKey=$guestKey rawUser=${rawUser.length} rawGuest=${rawGuest.length}');
+    } catch (e) {
+      debugPrint('NotificationsScreen._load debug error: $e');
+    }
   }
 
   @override

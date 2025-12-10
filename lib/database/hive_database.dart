@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:bcrypt/bcrypt.dart';
 import '../services/progress_service.dart';
+import '../services/in_app_notification_service.dart';
 
 class HiveDatabase {
   static const String _boxName = 'userBox';
@@ -87,6 +88,10 @@ class HiveDatabase {
 
     try {
       await ProgressService.migrateGuestProgress(identifier);
+    } catch (_) {}
+
+    try {
+      await InAppNotificationService.migrateGuestNotifications(identifier);
     } catch (_) {}
 
     return userMap;

@@ -361,11 +361,37 @@ class _KuisScreenState extends State<KuisScreen> with RouteAware {
     if (!mounted) return;
     if (max == null) return;
     final int chosen = max; // promote to non-null local variable
+
+    // Prepare and apply the chosen question count consistently.
+    await _prepareQuestionsForSession(chosen);
+  }
+
+  /// Prepare the question list for a new session using the provided
+  /// `max` count. This uses the current `_lastSessionQuestions` as the
+  /// base ordered pool (which is set when questions are first loaded or
+  /// when "Soal Baru" is requested). It also resets quiz state.
+  Future<void> _prepareQuestionsForSession(int max) async {
+    if (!mounted) return;
+    // Use the last session pool if available; otherwise use the current
+    // _allQuestions as a fallback.
+    final base = _lastSessionQuestions.isNotEmpty ? _lastSessionQuestions : _allQuestions;
+
+    List<Kuis> next;
+    if (max > 0 && max < base.length) {
+      next = base.sublist(0, max);
+    } else {
+      next = List<Kuis>.from(base);
+    }
+
     setState(() {
-      _maxQuestions = chosen;
-      if (_maxQuestions > 0 && _maxQuestions < _allQuestions.length) {
-        _allQuestions = _allQuestions.sublist(0, _maxQuestions);
-      }
+      _maxQuestions = max;
+      _allQuestions = List<Kuis>.from(next);
+      _lastSessionQuestions = List<Kuis>.from(next);
+      _isFinished = false;
+      _score = 0;
+      _currentIndex = 0;
+      _isAnswered = false;
+      _selectedIndex = null;
     });
   }
 

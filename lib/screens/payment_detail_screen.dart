@@ -225,13 +225,20 @@ class _PaymentDetailScreenState extends State<PaymentDetailScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildDropdown(
-                  "Dari",
-                  _from,
-                  (val) => setState(() => _from = val!),
+                Expanded(
+                  child: _buildDropdown(
+                    "Dari",
+                    _from,
+                    (val) => setState(() => _from = val!),
+                  ),
                 ),
-                const Icon(Icons.arrow_forward, color: Colors.white),
-                _buildDropdown("Ke", _to, (val) => setState(() => _to = val!)),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8.0),
+                  child: Icon(Icons.arrow_forward, color: Colors.white),
+                ),
+                Expanded(
+                  child: _buildDropdown("Ke", _to, (val) => setState(() => _to = val!)),
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -243,28 +250,31 @@ class _PaymentDetailScreenState extends State<PaymentDetailScreen> {
                   style: TextStyle(color: Colors.white),
                 ),
                 const SizedBox(width: 8),
-                ValueListenableBuilder<String>(
-                  valueListenable: SettingsService.timeZone,
-                  builder: (context, tz, _) {
-                    return DropdownButton<String>(
-                      dropdownColor: const Color(0xFF001F3F),
-                      value: tz,
-                      style: const TextStyle(color: Colors.white),
-                      items: _timeZones
-                          .map(
-                            (z) => DropdownMenuItem(
-                              value: z,
-                              child: Text(
-                                z,
-                                style: const TextStyle(color: Colors.white),
+                Expanded(
+                  child: ValueListenableBuilder<String>(
+                    valueListenable: SettingsService.timeZone,
+                    builder: (context, tz, _) {
+                      return DropdownButton<String>(
+                        isExpanded: true,
+                        dropdownColor: const Color(0xFF001F3F),
+                        value: tz,
+                        style: const TextStyle(color: Colors.white),
+                        items: _timeZones
+                            .map(
+                              (z) => DropdownMenuItem(
+                                value: z,
+                                child: Text(
+                                  z,
+                                  style: const TextStyle(color: Colors.white),
+                                ),
                               ),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (v) =>
-                          v != null ? SettingsService.setTimeZone(v) : null,
-                    );
-                  },
+                            )
+                            .toList(),
+                        onChanged: (v) =>
+                            v != null ? SettingsService.setTimeZone(v) : null,
+                      );
+                    },
+                  ),
                 ),
               ],
             ),
@@ -416,14 +426,23 @@ class _PaymentDetailScreenState extends State<PaymentDetailScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: Colors.white70)),
-          Text(
-            value,
-            style: TextStyle(
-              color: valueColor ?? Colors.white,
-              fontWeight: FontWeight.bold,
+          Expanded(
+            flex: 1,
+            child: Text(label, style: const TextStyle(color: Colors.white70)),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            flex: 2,
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              softWrap: true,
+              style: TextStyle(
+                color: valueColor ?? Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
         ],

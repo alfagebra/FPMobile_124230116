@@ -47,11 +47,41 @@ class InAppNotificationService {
     final prefs = await SharedPreferences.getInstance();
     final hive = HiveDatabase();
     final email = await hive.getCurrentUserEmail();
-    final key = email != null && email.isNotEmpty
-        ? '$_kKey\_${email.trim().toLowerCase()}'
-        : _kKey;
-    final raw = prefs.getStringList(key) ?? [];
-    return raw
+    // Build keys: user-specific key and guest key.
+    final userKey = email != null && email.isNotEmpty
+        ? '${_kKey}_${email.trim().toLowerCase()}'
+        : null;
+    final guestKey = _kKey;
+
+    // Read both user and guest lists so notifications created while
+    // unauthenticated are still visible after login until migrated.
+    final rawUser = userKey != null ? prefs.getStringList(userKey) ?? [] : <String>[];
+    final rawGuest = prefs.getStringList(guestKey) ?? [];
+
+    debugPrint('InAppNotificationService._readAll -> userKey=$userKey guestKey=$guestKey rawUser=${rawUser.length} rawGuest=${rawGuest.length}');
+
+    // Merge, with user items first (most recent ordering handled later)
+    final merged = <String>[];
+    merged.addAll(rawUser);
+    // append guest items that are not duplicates by id
+    final existingIds = merged.map((s) {
+      try {
+        final j = jsonDecode(s) as Map<String, dynamic>;
+        return j['id']?.toString();
+      } catch (_) {
+        return null;
+      }
+    }).whereType<String>().toSet();
+    for (final s in rawGuest) {
+      try {
+        final j = jsonDecode(s) as Map<String, dynamic>;
+        final id = j['id']?.toString();
+        if (id == null || existingIds.contains(id)) continue;
+      } catch (_) {}
+      merged.add(s);
+    }
+
+    return merged
         .map(
           (s) =>
               InAppNotification.fromJson(jsonDecode(s) as Map<String, dynamic>),
@@ -64,9 +94,10 @@ class InAppNotificationService {
     final hive = HiveDatabase();
     final email = await hive.getCurrentUserEmail();
     final key = email != null && email.isNotEmpty
-        ? '$_kKey\_${email.trim().toLowerCase()}'
+        ? '${_kKey}_${email.trim().toLowerCase()}'
         : _kKey;
     final raw = items.map((i) => jsonEncode(i.toJson())).toList();
+    debugPrint('InAppNotificationService._writeAll -> key=$key count=${raw.length}');
     await prefs.setStringList(key, raw);
     // newest first for UI convenience
     notifications.value = items.reversed.toList();
@@ -79,6 +110,7 @@ class InAppNotificationService {
     list.add(
       InAppNotification(id: id, title: title, body: body, time: DateTime.now()),
     );
+    debugPrint('InAppNotificationService.add -> adding id=$id title=$title');
     await _writeAll(list);
   }
 
@@ -119,7 +151,49 @@ class InAppNotificationService {
   static Future<void> init() async {
     // initialize unread count
     final list = await _readAll();
+    debugPrint('InAppNotificationService.init -> loaded ${list.length} items');
     // store newest-first for listeners
+    notifications.value = list.reversed.toList();
+    unreadCount.value = list.where((i) => !i.read).length;
+  }
+
+  /// Move notifications stored under the `guest` key into the target
+  /// user's key and remove the guest key. Avoids duplicates by id.
+  static Future<void> migrateGuestNotifications(String targetEmail) async {
+    final prefs = await SharedPreferences.getInstance();
+    final guestKey = _kKey;
+    final targetKey = '${_kKey}_${targetEmail.trim().toLowerCase()}';
+
+    final rawGuest = prefs.getStringList(guestKey) ?? [];
+    debugPrint('InAppNotificationService.migrateGuestNotifications -> guest=${rawGuest.length}');
+    if (rawGuest.isEmpty) return;
+
+    final rawTarget = prefs.getStringList(targetKey) ?? [];
+    final existingIds = rawTarget.map((s) {
+      try {
+        final j = jsonDecode(s) as Map<String, dynamic>;
+        return j['id']?.toString();
+      } catch (_) {
+        return null;
+      }
+    }).whereType<String>().toSet();
+
+    final merged = <String>[];
+    merged.addAll(rawTarget);
+    for (final s in rawGuest) {
+      try {
+        final j = jsonDecode(s) as Map<String, dynamic>;
+        final id = j['id']?.toString();
+        if (id == null || existingIds.contains(id)) continue;
+      } catch (_) {}
+      merged.add(s);
+    }
+
+    debugPrint('InAppNotificationService.migrateGuestNotifications -> writing target=$targetKey merged=${merged.length}');
+    await prefs.setStringList(targetKey, merged);
+    await prefs.remove(guestKey);
+    // refresh in-memory notifiers
+    final list = merged.map((s) => InAppNotification.fromJson(jsonDecode(s) as Map<String, dynamic>)).toList();
     notifications.value = list.reversed.toList();
     unreadCount.value = list.where((i) => !i.read).length;
   }

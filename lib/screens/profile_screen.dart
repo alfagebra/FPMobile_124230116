@@ -751,67 +751,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 const SizedBox(height: 18),
 
                 // Logout button
-                if (kDebugMode)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12.0),
-                    child: ElevatedButton.icon(
-                      onPressed: () async {
-                        // show debug dump of progress keys
-                        final hive = HiveDatabase();
-                        final current = await hive.getCurrentUserEmail();
-                        final data =
-                            await ProgressService.getAllProgressForUser(
-                              userEmail: current,
-                            );
-                        if (!mounted) return;
-                        showDialog<void>(
-                          context: context,
-                          builder: (ctx) => AlertDialog(
-                            backgroundColor: const Color(0xFF00345B),
-                            title: const Text(
-                              'Debug: Progress keys',
-                              style: TextStyle(color: Colors.white),
-                            ),
-                            content: SizedBox(
-                              width: double.maxFinite,
-                              child: SingleChildScrollView(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: data.entries
-                                      .map(
-                                        (e) => Text(
-                                          '${e.key} = ${e.value}',
-                                          style: const TextStyle(
-                                            color: Colors.white70,
-                                          ),
-                                        ),
-                                      )
-                                      .toList(),
-                                ),
-                              ),
-                            ),
-                            actions: [
-                              TextButton(
-                                style: TextButton.styleFrom(
-                                  foregroundColor: Colors.white,
-                                ),
-                                onPressed: () => Navigator.of(ctx).pop(),
-                                child: const Text('Tutup'),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.bug_report, color: Colors.white),
-                      label: const Text(
-                        'Debug Progress',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.teal,
-                      ),
-                    ),
-                  ),
                 ElevatedButton.icon(
                   onPressed: () async {
                     final confirmed = await showDialog<bool>(
